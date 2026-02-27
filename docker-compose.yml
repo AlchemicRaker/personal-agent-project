@@ -8,12 +8,18 @@ services:
       - "8501:8501"
     volumes:
       - .:/app
-      - /var/run/docker.sock:/var/run/docker.sock   # ← THIS is the correct mount for Linux containers on Windows
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PYTHONPATH=/app
-      - DOCKER_HOST=unix:///var/run/docker.sock     # ← extra safety so docker.from_env() always finds the socket
+      - PYTHONUNBUFFERED=1
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    mem_limit: 6g          # increased
+    mem_reservation: 3g
+    memswap_limit: 8g      # allows swap if needed
+    cpus: 4.0
     depends_on:
       - sandbox
+    tty: true
 
   sandbox:
     build:
