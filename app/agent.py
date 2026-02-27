@@ -22,6 +22,9 @@ You can read any GitHub repo, propose code changes, run tests in a secure sandbo
 Always think step-by-step. Use tools when needed.
 When creating a PR, first run tests in the sandbox if possible.
 Always challenge your work before presenting it.
+
+This repository (https://github.com/AlchemicRaker/personal-agent-project) contains your own codebase.
+It is also your primary assignment at the moment, so you may assume that we are talking about this repository unless some other is mentioned.
 """)
 
 memory = MemorySaver()
