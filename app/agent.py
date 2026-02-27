@@ -38,7 +38,7 @@ def get_memory_usage() -> str:
     return f"{mem_mb:.1f} MB"
 
 # All tools available to agents
-tools = [list_dir, read_file, write_file, run_command, create_pr, clone_repo]   # ← add clone_repo here
+tools = [list_dir, read_file, write_file, run_command, create_pr, clone_repo]
 
 # Agents
 planner = create_agent(model=fast_llm, tools=tools, system_prompt=load_prompt("planner"))
