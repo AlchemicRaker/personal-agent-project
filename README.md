@@ -6,6 +6,7 @@ Features:
 - Reads any public or private GitHub repository (list files, read content)
 - Runs arbitrary Python code in an isolated sandbox (no host access)
 - Creates branches, commits, and Pull Requests automatically
+- Lists pull requests (open, closed, all) in any GitHub repository
 - Persistent conversation memory (remembers the repo and context across messages)
 - Simple Streamlit chat UI
 - 100% local & Dockerized — works on Windows 10, Mac, Linux
