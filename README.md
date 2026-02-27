@@ -10,6 +10,12 @@ Features:
 - Simple Streamlit chat UI
 - 100% local & Dockerized — works on Windows 10, Mac, Linux
 
+## Agent Context (Persistent Instructions)
+
+- This repository ([AlchemicRaker/personal-agent-project](https://github.com/AlchemicRaker/personal-agent-project)) contains **your own codebase**.
+- It is your **primary assignment** at the moment.
+- **Assume all conversations refer to this repo** unless another is explicitly mentioned.
+
 ## Quick Start (CLI Commands)
 
 ```
