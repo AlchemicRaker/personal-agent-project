@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from langchain.agents import create_agent
 from langchain_xai import ChatXAI
 from langgraph.graph import StateGraph, START, END
@@ -11,11 +14,33 @@ import psutil
 from .tools.repo_tools import clone_repo, repo_list_dir, repo_read_file, repo_write_file, repo_run_command
 from .tools.memory_tools import memory_read_user_rules, memory_append_user_rule, memory_ingest_short_term, memory_ingest_long_term, memory_read_short_term, memory_read_long_term
 from .tools.temp_tools import temp_write, temp_read
-from .tools.github_tools import create_pr
+from .tools.github_tools import create_pull_request
 from .agents.base import load_prompt
-from dotenv import load_dotenv
 
-load_dotenv()
+from functools import wraps
+import streamlit as st
+from langchain_core.tools import BaseTool
+
+def counted_tool(tool):
+    """Auto-increments st.session_state.tool_call_counts on every call."""
+    @wraps(tool)
+    def wrapper(*args, **kwargs):
+        if "tool_call_counts" not in st.session_state:
+            st.session_state.tool_call_counts = {}
+
+        # Works for both plain functions and StructuredTool / @tool
+        tool_name = getattr(tool, "name", tool.__name__)
+
+        st.session_state.tool_call_counts[tool_name] = (
+            st.session_state.tool_call_counts.get(tool_name, 0) + 1
+        )
+
+        # Optional debug (remove later)
+        print(f"🔧 {tool_name} called → total {st.session_state.tool_call_counts[tool_name]}")
+
+        return tool(*args, **kwargs)
+
+    return wrapper
 
 fast_llm = ChatXAI(model="grok-4-1-fast-reasoning", temperature=0.1, max_tokens=1536)
 pr_llm = ChatXAI(model="grok-4-1-fast-non-reasoning", temperature=0.0, max_tokens=1024)
@@ -44,15 +69,19 @@ tools = [
     memory_read_user_rules, memory_append_user_rule, memory_ingest_short_term, memory_ingest_long_term,
     memory_read_short_term, memory_read_long_term,
     temp_write, temp_read,
-    create_pr
+    create_pull_request
 ]
 
 # Agents with curated tools
-planner = create_agent(model=fast_llm, tools=[repo_list_dir, repo_read_file, memory_read_user_rules, memory_read_short_term, memory_read_long_term], system_prompt=load_prompt("planner"))
-coder = create_agent(model=pr_llm, tools=[repo_list_dir, repo_read_file, repo_write_file, repo_run_command, temp_write, temp_read], system_prompt=load_prompt("coder"))
-tester = create_agent(model=fast_llm, tools=[repo_list_dir, repo_read_file, repo_run_command], system_prompt=load_prompt("tester"))
-pr_creator = create_agent(model=pr_llm, tools=[create_pr, repo_list_dir, repo_read_file], system_prompt=load_prompt("pr_creator"))
-reasoner = create_agent(model=reasoner_llm, tools=[repo_list_dir, repo_read_file, memory_read_user_rules, memory_append_user_rule, memory_ingest_short_term, memory_ingest_long_term, memory_read_short_term, memory_read_long_term], system_prompt=load_prompt("reasoner"))
+planner = create_agent(
+    model=fast_llm,
+    tools=[counted_tool(t) for t in [clone_repo, repo_list_dir, repo_read_file, memory_read_user_rules, memory_read_short_term, memory_read_long_term]],
+    system_prompt=load_prompt("planner")
+)
+coder = create_agent(model=pr_llm, tools=[counted_tool(t) for t in [repo_list_dir, repo_read_file, repo_write_file, repo_run_command, temp_write, temp_read]], system_prompt=load_prompt("coder"))
+tester = create_agent(model=fast_llm, tools=[counted_tool(t) for t in [repo_list_dir, repo_read_file, repo_run_command]], system_prompt=load_prompt("tester"))
+pr_creator = create_agent(model=pr_llm, tools=[counted_tool(t) for t in [create_pull_request, repo_list_dir, repo_read_file]], system_prompt=load_prompt("pr_creator"))
+reasoner = create_agent(model=reasoner_llm, tools=[counted_tool(t) for t in [repo_list_dir, repo_read_file, memory_read_user_rules, memory_append_user_rule, memory_ingest_short_term, memory_ingest_long_term, memory_read_short_term, memory_read_long_term]], system_prompt=load_prompt("reasoner"))
 
 def increment_counts(state: AgentState, node_name: str):
     state["node_hit_counts"][node_name] = state["node_hit_counts"].get(node_name, 0) + 1

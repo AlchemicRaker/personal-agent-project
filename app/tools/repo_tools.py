@@ -32,7 +32,10 @@ def repo_list_dir(path: str = ".") -> str:
     full_path = REPO_DIR / path
     if not full_path.exists():
         return f"Path not found: {path}"
-    return "\n".join(str(p.relative_to(REPO_DIR)) for p in full_path.rglob("*") if p.is_file())
+    try:
+        return "\n".join(str(p.relative_to(REPO_DIR)) for p in full_path.rglob("*") if p.is_file())
+    except Exception as e:
+        return f"Error listing {path}: {str(e)}"
 
 def repo_read_file(path: str) -> str:
     """Read file from current_repo staging area"""

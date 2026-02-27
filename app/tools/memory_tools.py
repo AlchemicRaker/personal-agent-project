@@ -13,9 +13,11 @@ LONG_TERM_DIR.mkdir(parents=True, exist_ok=True)
 fast_llm = ChatXAI(model="grok-4-1-fast-reasoning", temperature=0.1, max_tokens=2048)
 
 def memory_read_user_rules() -> str:
+    """Read the current user rules from persistent memory."""
     return USER_RULES.read_text(encoding="utf-8") if USER_RULES.exists() else "No user rules defined yet."
 
 def memory_append_user_rule(rule: str) -> str:
+    """Append a new rule to the user rules file in memory."""
     USER_RULES.parent.mkdir(parents=True, exist_ok=True)
     with open(USER_RULES, "a", encoding="utf-8") as f:
         f.write(f"\n\n--- {rule}")
@@ -68,8 +70,10 @@ Updated long-term memory for '{key}':"""
     return f"✅ Ingested into long-term memory '{key}' (new length: {len(updated)} chars)"
 
 def memory_read_short_term() -> str:
+    """Read the current short-term session notes from memory."""
     return SHORT_TERM.read_text(encoding="utf-8") if SHORT_TERM.exists() else "No short-term memory yet."
 
 def memory_read_long_term(key: str) -> str:
+    """Read long-term memory for a specific key."""
     path = LONG_TERM_DIR / f"{key}.md"
     return path.read_text(encoding="utf-8") if path.exists() else f"No long-term memory for '{key}'."
