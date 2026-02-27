@@ -8,21 +8,25 @@ services:
       - "8501:8501"
     volumes:
       - .:/app
+      - ./workspace:/workspace   # Persistent workspace for all code/files
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
       - DOCKER_HOST=unix:///var/run/docker.sock
-    mem_limit: 6g          # increased
+    mem_limit: 6g
     mem_reservation: 3g
-    memswap_limit: 8g      # allows swap if needed
+    memswap_limit: 8g
     cpus: 4.0
+    tty: true
     depends_on:
       - sandbox
-    tty: true
 
   sandbox:
     build:
       context: .
       dockerfile: Dockerfile.sandbox
     image: software-engineer-sandbox
+    volumes:
+      - ./workspace:/workspace   # Share the same workspace
+    mem_limit: 2g
