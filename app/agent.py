@@ -2,7 +2,7 @@ from langchain.agents import create_agent
 from langchain_xai import ChatXAI
 from langchain_core.messages import SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
-from .tools.github_tools import list_repo_files, read_file, create_pr
+from .tools.github_tools import list_repo_files, read_file, create_pr, list_pull_requests
 from .tools.sandbox import run_in_sandbox
 from dotenv import load_dotenv
 
@@ -14,11 +14,11 @@ llm = ChatXAI(
     max_tokens=4096
 )
 
-tools = [list_repo_files, read_file, create_pr, run_in_sandbox]
+tools = [list_repo_files, read_file, create_pr, run_in_sandbox, list_pull_requests]
 
 system_prompt = SystemMessage(content="""
 You are an expert software engineer agent. 
-You can read any GitHub repo, propose code changes, run tests in a secure sandbox, and create PRs.
+You can read any GitHub repo, propose code changes, run tests in a secure sandbox, create PRs, and list/view pull requests.
 Always think step-by-step. Use tools when needed.
 When creating a PR, first run tests in the sandbox if possible.
 Always challenge your work before presenting it.
