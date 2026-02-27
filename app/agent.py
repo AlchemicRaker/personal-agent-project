@@ -4,7 +4,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from typing import TypedDict, Annotated, Sequence
 from langgraph.graph.message import add_messages
-from .tools.github_tools import list_repo_files, read_file, create_pr
+from .tools.github_tools import list_repo_files, read_file, create_pr, list_pull_requests
 from .tools.sandbox import run_in_sandbox
 from .agents.base import load_prompt
 from dotenv import load_dotenv
@@ -23,7 +23,7 @@ class AgentState(TypedDict):
     turn: Annotated[int, lambda a, b: b]  # turn counter
 
 # Tools
-common_tools = [list_repo_files, read_file]
+common_tools = [list_repo_files, read_file, list_pull_requests]
 tester_tools = common_tools + [run_in_sandbox]
 pr_tools = common_tools + [create_pr]
 

@@ -4,6 +4,7 @@
 
 Features:
 - Reads any public or private GitHub repository (list files, read content)
+- Lists open pull requests in a repository
 - Runs arbitrary Python code in an isolated sandbox (no host access)
 - Creates branches, commits, and Pull Requests automatically
 - Persistent conversation memory (remembers the repo and context across messages)
