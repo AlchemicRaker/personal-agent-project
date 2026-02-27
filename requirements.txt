@@ -1,0 +1,9 @@
+langgraph
+langchain
+langchain-xai
+langchain-community
+pygithub
+streamlit
+python-dotenv
+docker
+pydantic

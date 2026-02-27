@@ -1,0 +1,22 @@
+version: '3.8'
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock   # ← THIS is the correct mount for Linux containers on Windows
+    environment:
+      - PYTHONPATH=/app
+      - DOCKER_HOST=unix:///var/run/docker.sock     # ← extra safety so docker.from_env() always finds the socket
+    depends_on:
+      - sandbox
+
+  sandbox:
+    build:
+      context: .
+      dockerfile: Dockerfile.sandbox
+    image: software-engineer-sandbox
