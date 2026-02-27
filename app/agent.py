@@ -21,24 +21,31 @@ from functools import wraps
 import streamlit as st
 from langchain_core.tools import BaseTool
 
+def format_kwargs_custom(**kwargs):
+  details = []
+  for k, v in kwargs.items():
+    details.append(f"{k}: {v}") # Formats each pair as 'key: value'
+  return ", ".join(details) # Joins them with a comma and space
+
 def counted_tool(tool):
     """Auto-increments st.session_state.tool_call_counts on every call."""
     @wraps(tool)
     def wrapper(*args, **kwargs):
-        if "tool_call_counts" not in st.session_state:
-            st.session_state.tool_call_counts = {}
+        # if "tool_call_counts" not in st.session_state:
+        #     st.session_state.tool_call_counts = {}
 
-        # Works for both plain functions and StructuredTool / @tool
+        # # Works for both plain functions and StructuredTool / @tool
         tool_name = getattr(tool, "name", tool.__name__)
 
-        st.session_state.tool_call_counts[tool_name] = (
-            st.session_state.tool_call_counts.get(tool_name, 0) + 1
-        )
+        # st.session_state.tool_call_counts[tool_name] = (
+        #     st.session_state.tool_call_counts.get(tool_name, 0) + 1
+        # )
 
-        # Optional debug (remove later)
-        print(f"🔧 {tool_name} called → total {st.session_state.tool_call_counts[tool_name]}")
+        # # Optional debug (remove later)
+        # print(f"🔧 {tool_name} called → total {st.session_state.tool_call_counts[tool_name]}")
+        print(f"🔧 {tool_name} called with {' '.join(args)} - {format_kwargs_custom(**kwargs)}")
 
-        return tool(*args, **kwargs)
+        # return tool(*args, **kwargs)
 
     return wrapper
 
@@ -57,7 +64,6 @@ class AgentState(TypedDict):
     last_planner_plan: str
     last_reasoner_advice: str
     coder_tester_rounds: Annotated[int, lambda a, b: b or 0]
-    tool_call_counts: Annotated[Dict[str, int], lambda a, b: {**a, **b} or {}]
     node_hit_counts: Annotated[Dict[str, int], lambda a, b: {**a, **b} or {}]
 
 def get_memory_usage() -> str:
@@ -81,7 +87,7 @@ planner = create_agent(
 coder = create_agent(model=pr_llm, tools=[counted_tool(t) for t in [repo_list_dir, repo_read_file, repo_write_file, repo_run_command, temp_write, temp_read]], system_prompt=load_prompt("coder"))
 tester = create_agent(model=fast_llm, tools=[counted_tool(t) for t in [repo_list_dir, repo_read_file, repo_run_command]], system_prompt=load_prompt("tester"))
 pr_creator = create_agent(model=pr_llm, tools=[counted_tool(t) for t in [create_pull_request, repo_list_dir, repo_read_file]], system_prompt=load_prompt("pr_creator"))
-reasoner = create_agent(model=reasoner_llm, tools=[counted_tool(t) for t in [repo_list_dir, repo_read_file, memory_read_user_rules, memory_append_user_rule, memory_ingest_short_term, memory_ingest_long_term, memory_read_short_term, memory_read_long_term]], system_prompt=load_prompt("reasoner"))
+reasoner = create_agent(model=reasoner_llm, tools=[counted_tool(t) for t in [clone_repo, repo_list_dir, repo_read_file, memory_read_user_rules, memory_append_user_rule, memory_ingest_short_term, memory_ingest_long_term, memory_read_short_term, memory_read_long_term]], system_prompt=load_prompt("reasoner"))
 
 def increment_counts(state: AgentState, node_name: str):
     state["node_hit_counts"][node_name] = state["node_hit_counts"].get(node_name, 0) + 1
@@ -174,7 +180,9 @@ def create_specialist_node(agent, name: str):
             elif name == "Reasoner":
                 state["last_reasoner_advice"] = last_output[:1200]
 
-            preview = last_output[:700] + ("..." if len(last_output) > 700 else "")
+            # preview = last_output if name == "Reasoner" else (last_output[:700] + ("..." if len(last_output) > 700 else ""))
+            preview = last_output
+
             if name != "PR_Creator":
                 new_lines.append(f"📤 {name} Output Preview:\n{preview}\n\n")
 
@@ -195,14 +203,10 @@ def create_specialist_node(agent, name: str):
     return node
 
 def final_report_node(state: AgentState):
-    tool_stats = "\n".join([f"- {tool}: {count} times" for tool, count in sorted(state.get("tool_call_counts", {}).items())])
     node_stats = "\n".join([f"- {node}: {count} times" for node, count in sorted(state.get("node_hit_counts", {}).items())])
 
     report = f"""
 **Final Agent Statistics**
-
-**Tool Calls:**
-{tool_stats or "No tools called"}
 
 **Node Hits:**
 {node_stats or "No nodes hit"}

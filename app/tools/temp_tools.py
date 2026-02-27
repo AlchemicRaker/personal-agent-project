@@ -4,10 +4,18 @@ WORKSPACE = Path("/workspace")
 TEMP_DIR = WORKSPACE / "temp"
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
+
 def temp_write(path: str, content: str) -> str:
     """
     Write or overwrite a file in the temporary scratch space (/workspace/temp).
-    Useful for temporary notes, test data, intermediate files, etc.
+
+    Signature: temp_write(path: str, content: str) -> str
+
+    Use this tool when:
+    - You need to create temporary files, test data, intermediate results, or scratch notes
+    - The Coder or Tester needs a temporary file for testing or processing
+
+    This is the correct place for any short-lived or debugging files. Never use it for permanent code or memory.
     """
     try:
         full_path = TEMP_DIR / path
@@ -17,9 +25,18 @@ def temp_write(path: str, content: str) -> str:
     except Exception as e:
         return f"❌ Error writing temp/{path}: {str(e)}"
 
+
 def temp_read(path: str) -> str:
     """
-    Read a file from the temporary scratch space (/workspace/temp).
+    Read the content of a file from the temporary scratch space (/workspace/temp).
+
+    Signature: temp_read(path: str) -> str
+
+    Use this tool when:
+    - You need to inspect temporary files created earlier in the session
+    - The Tester or Coder needs to verify intermediate results
+
+    Returns the full content or an error message if the file doesn't exist.
     """
     try:
         full_path = TEMP_DIR / path
@@ -29,9 +46,18 @@ def temp_read(path: str) -> str:
     except Exception as e:
         return f"❌ Error reading temp/{path}: {str(e)}"
 
+
 def temp_list_dir() -> str:
     """
-    List all files currently in the temp folder (for debugging / visibility).
+    List all files and subdirectories currently in the temporary scratch space (/workspace/temp).
+
+    Signature: temp_list_dir() -> str
+
+    Use this tool when:
+    - You want to see what temporary files exist in the current session
+    - Debugging or exploring what the Coder or Tester has created
+
+    Returns a clean list of file paths relative to the temp folder.
     """
     try:
         files = [str(p.relative_to(TEMP_DIR)) for p in TEMP_DIR.rglob("*") if p.is_file()]

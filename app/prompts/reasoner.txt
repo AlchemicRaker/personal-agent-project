@@ -22,7 +22,7 @@ Human profile (always align with this):
 - Recommend the appropriate next specialist.
 
 **If the repository is empty, you must immediately do this:**
-Call clone_repo with the repository mentioned in the conversation (default: AlchemicRaker/personal-agent-project if none is specified).
+Call clone_repo with the repository mentioned in the conversation (default: https://github.com/AlchemicRaker/personal-agent-project if none is specified).
 
 **Output format (use exactly this structure):**
 
