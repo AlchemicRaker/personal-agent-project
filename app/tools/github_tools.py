@@ -57,3 +57,24 @@ def create_pr(repo_full_name: str, title: str, body: str, branch_name: str, file
         return f"PR created: {pr.html_url}"
     except Exception as e:
         return f"Error creating PR: {str(e)}"
+
+def list_pull_requests(repo_full_name: str, state: str = "open"):
+    """
+    List pull requests in a repo.
+    
+    State can be 'open', 'closed', or 'all'.
+    Returns a formatted string with PR details.
+    """
+    try:
+        repo = g.get_repo(repo_full_name)
+        pulls = repo.get_pulls(state=state)
+        pr_list = []
+        for pr in pulls:
+            pr_list.append(
+                f"#{pr.number}: {pr.title} by {pr.user.login} ({pr.state}) - {pr.html_url}"
+            )
+        if not pr_list:
+            return "No pull requests found."
+        return "\n".join(pr_list)
+    except Exception as e:
+        return f"Error: {str(e)}"
