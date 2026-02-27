@@ -2,20 +2,21 @@ from langchain.agents import create_agent
 from langchain_xai import ChatXAI
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
-from typing import TypedDict, Annotated, Sequence, List
+from typing import TypedDict, Annotated, Sequence, List, Dict
 from langgraph.graph.message import add_messages
 from langchain_core.messages import HumanMessage
 import psutil
 
-# Import workspace tools + original create_pr
-from .tools.workspace_tools import list_dir, read_file, write_file, run_command, clone_repo
+# Tools
+from .tools.repo_tools import clone_repo, repo_list_dir, repo_read_file, repo_write_file, repo_run_command
+from .tools.memory_tools import memory_read_user_rules, memory_append_user_rule, memory_ingest_short_term, memory_ingest_long_term, memory_read_short_term, memory_read_long_term
+from .tools.temp_tools import temp_write, temp_read
 from .tools.github_tools import create_pr
 from .agents.base import load_prompt
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# LLMs
 fast_llm = ChatXAI(model="grok-4-1-fast-reasoning", temperature=0.1, max_tokens=1536)
 pr_llm = ChatXAI(model="grok-4-1-fast-non-reasoning", temperature=0.0, max_tokens=1024)
 reasoner_llm = ChatXAI(model="grok-4", temperature=0.2, max_tokens=4096)
@@ -31,27 +32,38 @@ class AgentState(TypedDict):
     last_planner_plan: str
     last_reasoner_advice: str
     coder_tester_rounds: Annotated[int, lambda a, b: b or 0]
+    tool_call_counts: Annotated[Dict[str, int], lambda a, b: {**a, **b} or {}]
+    node_hit_counts: Annotated[Dict[str, int], lambda a, b: {**a, **b} or {}]
 
 def get_memory_usage() -> str:
-    process = psutil.Process()
-    mem_mb = process.memory_info().rss / (1024 * 1024)
-    return f"{mem_mb:.1f} MB"
+    return f"{psutil.Process().memory_info().rss / (1024*1024):.1f} MB"
 
-# All tools available to agents
-tools = [list_dir, read_file, write_file, run_command, create_pr, clone_repo]   # ← add clone_repo here
+# All tools
+tools = [
+    repo_list_dir, repo_read_file, repo_write_file, repo_run_command,
+    memory_read_user_rules, memory_append_user_rule, memory_ingest_short_term, memory_ingest_long_term,
+    memory_read_short_term, memory_read_long_term,
+    temp_write, temp_read,
+    create_pr
+]
 
-# Agents
-planner = create_agent(model=fast_llm, tools=tools, system_prompt=load_prompt("planner"))
-coder = create_agent(model=pr_llm, tools=tools, system_prompt=load_prompt("coder"))
-tester = create_agent(model=fast_llm, tools=tools, system_prompt=load_prompt("tester"))
-pr_creator = create_agent(model=pr_llm, tools=tools, system_prompt=load_prompt("pr_creator"))
-reasoner = create_agent(model=reasoner_llm, tools=tools, system_prompt=load_prompt("reasoner"))
+# Agents with curated tools
+planner = create_agent(model=fast_llm, tools=[repo_list_dir, repo_read_file, memory_read_user_rules, memory_read_short_term, memory_read_long_term], system_prompt=load_prompt("planner"))
+coder = create_agent(model=pr_llm, tools=[repo_list_dir, repo_read_file, repo_write_file, repo_run_command, temp_write, temp_read], system_prompt=load_prompt("coder"))
+tester = create_agent(model=fast_llm, tools=[repo_list_dir, repo_read_file, repo_run_command], system_prompt=load_prompt("tester"))
+pr_creator = create_agent(model=pr_llm, tools=[create_pr, repo_list_dir, repo_read_file], system_prompt=load_prompt("pr_creator"))
+reasoner = create_agent(model=reasoner_llm, tools=[repo_list_dir, repo_read_file, memory_read_user_rules, memory_append_user_rule, memory_ingest_short_term, memory_ingest_long_term, memory_read_short_term, memory_read_long_term], system_prompt=load_prompt("reasoner"))
+
+def increment_counts(state: AgentState, node_name: str):
+    state["node_hit_counts"][node_name] = state["node_hit_counts"].get(node_name, 0) + 1
+    return state
 
 def supervisor_node(state: AgentState):
     current_turn = state.get("turn", 0) + 1
     full_trace = state.get("trace", [])
     last_agent = state.get("last_agent", "user")
     coder_tester_rounds = state.get("coder_tester_rounds", 0)
+    increment_counts(state, "supervisor")
 
     new_lines = [f"🔄 [Turn {current_turn}] Supervisor (last: {last_agent}) deciding...\n"]
 
@@ -110,6 +122,7 @@ def create_specialist_node(agent, name: str):
         current_turn = state.get("turn", 0)
         full_trace = state.get("trace", [])
         original_request = state.get("original_human_request", "")
+        increment_counts(state, name.lower())
 
         new_lines = [f"🛠️ [Turn {current_turn}] {name} is working...\n"]
 
@@ -152,6 +165,24 @@ def create_specialist_node(agent, name: str):
         }
     return node
 
+def final_report_node(state: AgentState):
+    tool_stats = "\n".join([f"- {tool}: {count} times" for tool, count in sorted(state.get("tool_call_counts", {}).items())])
+    node_stats = "\n".join([f"- {node}: {count} times" for node, count in sorted(state.get("node_hit_counts", {}).items())])
+
+    report = f"""
+**Final Agent Statistics**
+
+**Tool Calls:**
+{tool_stats or "No tools called"}
+
+**Node Hits:**
+{node_stats or "No nodes hit"}
+
+**Session complete.** Memory has been ingested and persisted.
+"""
+    state["messages"].append(HumanMessage(content=report))
+    return state
+
 # Build graph
 graph = StateGraph(AgentState)
 graph.add_node("supervisor", supervisor_node)
@@ -160,6 +191,7 @@ graph.add_node("coder", create_specialist_node(coder, "Coder"))
 graph.add_node("tester", create_specialist_node(tester, "Tester"))
 graph.add_node("pr_creator", create_specialist_node(pr_creator, "PR_Creator"))
 graph.add_node("reasoner", create_specialist_node(reasoner, "Reasoner"))
+graph.add_node("final_report", final_report_node)
 
 graph.add_edge(START, "supervisor")
 
@@ -172,15 +204,15 @@ graph.add_conditional_edges(
         "tester": "tester",
         "pr_creator": "pr_creator",
         "reasoner": "reasoner",
-        "FINISH": END,
+        "FINISH": "final_report",
     }
 )
 
 for node in ["planner", "coder", "tester", "reasoner"]:
     graph.add_edge(node, "supervisor")
 
-# PR_Creator goes directly to END (no need to return to supervisor)
-graph.add_edge("pr_creator", END)
+graph.add_edge("pr_creator", "final_report")
+graph.add_edge("final_report", END)
 
 memory = MemorySaver()
 compiled_graph = graph.compile(checkpointer=memory)
