@@ -1,53 +1,55 @@
 import streamlit as st
-from langchain_core.messages import HumanMessage
-from app.agent import agent
+from app.agent import run_agent
 
-st.title("🛠️ Multi-Agent Software Engineer (Grok 4.1 Fast + Clean Live Trace)")
+st.set_page_config(page_title="Personal Agent", layout="wide")
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+if "repo" not in st.session_state:
+    st.session_state.repo = None
+if "temp_prompt" not in st.session_state:
+    st.session_state.temp_prompt = ""
 
-for msg in st.session_state.messages:
-    st.chat_message(msg["role"]).write(msg["content"])
+st.title("🤖 Personal Agent System")
 
-if prompt := st.chat_input("Describe the task (mention the repo once — team will remember)"):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    st.chat_message("user").write(prompt)
-    
-    with st.chat_message("assistant"):
-        trace_expander = st.expander("🔍 Live Agent Trace", expanded=True)
-        trace_placeholder = trace_expander.empty()
-        trace_lines = []
-        
-        final = ""
-        
-        with st.spinner("Team working..."):
-            config = {
-                "configurable": {"thread_id": "multi_agent_session"},
-                "recursion_limit": 50
-            }
-            input_state = {
-                "messages": [HumanMessage(content=prompt)],
-                "turn": 0,
-                "trace": [],
-                "delta_trace": [],
-                "last_agent": "user",
-                "original_human_request": prompt
-            }
-            
-            for event in agent.stream(input_state, config=config, stream_mode="updates"):
-                for node_name, node_data in event.items():
-                    if "delta_trace" in node_data:
-                        new_lines = node_data["delta_trace"]
-                        trace_lines.extend(new_lines)
-                        trace_placeholder.markdown("".join(trace_lines))
-                    
-                    if "messages" in node_data and node_data["messages"]:
-                        final = node_data["messages"][-1].content
-            
-            if final:
-                st.write(final)
-            else:
-                st.write("✅ Task completed.")
-            
-            st.session_state.messages.append({"role": "assistant", "content": final or "Task completed."})
+col1, col2 = st.columns([1, 3])
+
+with col1:
+    st.subheader("Controls")
+    task = st.text_area("Task", height=100, placeholder="e.g., improve the app")
+    repo = st.text_input(
+        "GitHub Repo", placeholder="owner/repo", value=st.session_state.repo or ""
+    )
+    if st.button("🚀 Run Agent"):
+        st.session_state.repo = repo
+        st.session_state.temp_prompt = ""
+        st.rerun()
+
+    if st.session_state.temp_prompt:
+        task = st.session_state.temp_prompt
+
+    st.subheader("File Browser")
+    if st.button("Refresh"):
+        st.cache_data.clear()
+
+    @st.cache_data
+    def get_files():
+        from app.tools import list_dir
+
+        return list_dir(".")
+
+    if st.button("List Files"):
+        files = get_files()
+        st.text(files)
+
+    search_filter = st.text_input("Search/Filter Files")
+    st.caption("For subdirs, trigger agent with list_dir('subdir') in task")
+
+    # New: Search Repo Issues button
+    if st.button("🔍 Search Repo Issues") and st.session_state.repo:
+        st.session_state.temp_prompt = f"Use list_issues('{st.session_state.repo}') tool and summarize open issues.\\n**PLAN COMPLETE**"
+        st.rerun()
+
+with col2:
+    if task:
+        with st.spinner("Running agent..."):
+            result = run_agent(task, repo=st.session_state.repo)
+            st.markdown(result)
