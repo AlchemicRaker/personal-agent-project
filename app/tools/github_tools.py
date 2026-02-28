@@ -1,84 +1,80 @@
 from github import Github, GithubException
 from dotenv import load_dotenv
 import os
-import subprocess
 from pathlib import Path
+import time
+import subprocess
 
 load_dotenv()
 g = Github(os.getenv("GITHUB_TOKEN"))
 WORKSPACE = Path("/workspace")
 
-def create_pull_request(repo_full_name: str, title: str, body: str, branch_name: str) -> str:
-    """
-    Create a pull request using only the PyGithub library. Detects local changes via git status,
-    applies them remotely to a new branch via API (creating one commit per file), and opens the PR.
-    
-    When to use: Call this only after all changes are finalized in the workspace (e.g., by the coder or tester). 
-    This tool handles file additions, modifications, and deletions remotely. Ensure workspace is ready.
-    
-    Args:
-        repo_full_name: Full GitHub repo name (e.g., "user/repo").
-        title: PR title (keep concise, descriptive).
-        body: PR body (include changes summary, issue reference).
-        branch_name: New branch name (unique, descriptive like "fix-issue-123").
-    
-    Returns: URL of created PR or error message. If no changes, returns "No changes to commit."
-    """
+
+def validate_repo(repo_full_name: str) -> str:
+    if not repo_full_name or repo_full_name.count("/") != 1:
+        raise ValueError(f"Invalid repo_full_name: {repo_full_name}. Use 'owner/repo'.")
     try:
-        repo = g.get_repo(repo_full_name)
-        
-        subprocess.run(["git", "-C", str(WORKSPACE), "config", "user.name", "MechaRaker"], check=True)
-        subprocess.run(["git", "-C", str(WORKSPACE), "config", "user.email", "MechaRaker@gmail.com"], check=True)
-        
-        # Create new branch from main
-        main_branch = repo.get_branch("main")
-        repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=main_branch.commit.sha)
-        
-        # Stage all changes locally (no commit) to standardize git status
-        subprocess.run(["git", "-C", str(WORKSPACE), "add", "."], check=True, capture_output=True, text=True)
-        
-        # Get changes via git status --porcelain
-        status_result = subprocess.run(["git", "-C", str(WORKSPACE), "status", "--porcelain"], check=True, capture_output=True, text=True)
-        changes = status_result.stdout.strip().splitlines()
-        
-        if not changes:
-            return "No changes to commit. PR not created."
-        
-        added_files = []
-        modified_files = []
-        deleted_files = []
-        
-        for line in changes:
-            if line.startswith('A '):
-                path = line[2:].strip()
-                added_files.append(path)
-            elif line.startswith('M '):
-                path = line[2:].strip()
-                modified_files.append(path)
-            elif line.startswith('D '):
-                path = line[2:].strip()
-                deleted_files.append(path)
-            # Note: Ignores renames, conflicts, etc., for simplicity
-        
-        # Apply changes remotely
-        for path in added_files:
-            content = (WORKSPACE / path).read_bytes()
-            repo.create_file(path=path, message=f"Add {path} for PR: {title}", content=content, branch=branch_name)
-        
-        for path in modified_files:
-            file_content = repo.get_contents(path, ref="main")
-            new_content = (WORKSPACE / path).read_bytes()
-            repo.update_file(path=path, message=f"Update {path} for PR: {title}", content=new_content, sha=file_content.sha, branch=branch_name)
-        
-        for path in deleted_files:
-            file_content = repo.get_contents(path, ref="main")
-            repo.delete_file(path=path, message=f"Delete {path} for PR: {title}", sha=file_content.sha, branch=branch_name)
-        
-        # Create PR
-        pr = repo.create_pull(title=title, body=body, head=branch_name, base="main")
-        return f"PR created: {pr.html_url}"
-    
-    except GithubException as ge:
-        return f"GitHub API error: {str(ge)}"
-    except Exception as e:
-        return f"Error creating PR: {str(e)}"
+        g.get_repo(repo_full_name)
+    except GithubException:
+        raise ValueError(f"Repo not found: {repo_full_name}")
+    return repo_full_name
+
+
+def with_retry(func):
+    def wrapper(*args, **kwargs):
+        for attempt in range(3):
+            try:
+                return func(*args, **kwargs)
+            except Exception:
+                if attempt == 2:
+                    raise
+                time.sleep(2**attempt)
+        return None
+
+    return wrapper
+
+
+@with_retry
+def create_pull_request(
+    repo_full_name: str, title: str, body: str, branch_name: str
+) -> str:
+    repo_full_name = validate_repo(repo_full_name)
+    repo = g.get_repo(repo_full_name)
+    # Simplified: run git status via tool, assume changes staged/committed locally
+    status_result = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=WORKSPACE, capture_output=True, text=True
+    )
+    if not status_result.stdout.strip():
+        return "No changes to commit."
+    # Create branch, commit all, push, create PR (API sim)
+    subprocess.run(["git", "checkout", "-b", branch_name], cwd=WORKSPACE, check=True)
+    subprocess.run(["git", "add", "."], cwd=WORKSPACE, check=True)
+    subprocess.run(["git", "commit", "-m", title], cwd=WORKSPACE, check=True)
+    subprocess.run(["git", "push", "origin", branch_name], cwd=WORKSPACE, check=True)
+    pr = repo.create_pull(title=title, body=body, head=branch_name, base="main")
+    return pr.html_url
+
+
+@with_retry
+def list_issues(repo_full_name: str) -> str:
+    repo_full_name = validate_repo(repo_full_name)
+    _ = g.get_repo(repo_full_name)
+    issues = [issue.html_url for issue in _.get_issues(state="open")]
+    return "\n".join(issues)
+
+
+@with_retry
+def read_issue(repo_full_name: str, issue_number: int) -> str:
+    repo_full_name = validate_repo(repo_full_name)
+    repo = g.get_repo(repo_full_name)
+    issue = repo.get_issue(issue_number)
+    return f"Title: {issue.title}\nBody: {issue.body or 'No body'}"
+
+
+@with_retry
+def post_comment(repo_full_name: str, issue_number: int, comment: str) -> str:
+    repo_full_name = validate_repo(repo_full_name)
+    repo = g.get_repo(repo_full_name)
+    issue = repo.get_issue(issue_number)
+    comment_obj = issue.create_comment(comment)
+    return comment_obj.html_url
