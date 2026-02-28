@@ -6,11 +6,9 @@ from typing import TypedDict, Annotated, Sequence, List
 from langgraph.graph.message import add_messages
 from langchain_core.messages import HumanMessage
 import psutil
-import re
 
-# Import workspace tools + original create_pr
-from .tools.workspace_tools import list_dir, read_file, write_file, run_command, clone_repo
-from .tools.github_tools import create_pull_request
+# Import tools
+from .tools import tools
 from .agents.base import load_prompt
 from dotenv import load_dotenv
 
@@ -20,6 +18,7 @@ load_dotenv()
 fast_llm = ChatXAI(model="grok-4-1-fast-reasoning", temperature=0.1, max_tokens=1536)
 pr_llm = ChatXAI(model="grok-4-1-fast-non-reasoning", temperature=0.0, max_tokens=1024)
 reasoner_llm = ChatXAI(model="grok-4", temperature=0.2, max_tokens=4096)
+
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence, add_messages]
@@ -33,20 +32,26 @@ class AgentState(TypedDict):
     last_reasoner_advice: str
     coder_tester_rounds: Annotated[int, lambda a, b: b or 0]
 
+
 def get_memory_usage() -> str:
     process = psutil.Process()
     mem_mb = process.memory_info().rss / (1024 * 1024)
     return f"{mem_mb:.1f} MB"
 
-# All tools available to agents
-tools = [list_dir, read_file, write_file, run_command, create_pull_request, clone_repo]
 
-# Agents
-planner = create_agent(model=fast_llm, tools=tools, system_prompt=load_prompt("planner"))
+# Agents with updated tools
+planner = create_agent(
+    model=fast_llm, tools=tools, system_prompt=load_prompt("planner")
+)
 coder = create_agent(model=pr_llm, tools=tools, system_prompt=load_prompt("coder"))
 tester = create_agent(model=fast_llm, tools=tools, system_prompt=load_prompt("tester"))
-pr_creator = create_agent(model=pr_llm, tools=tools, system_prompt=load_prompt("pr_creator"))
-reasoner = create_agent(model=reasoner_llm, tools=tools, system_prompt=load_prompt("reasoner"))
+pr_creator = create_agent(
+    model=pr_llm, tools=tools, system_prompt=load_prompt("pr_creator")
+)
+reasoner = create_agent(
+    model=reasoner_llm, tools=tools, system_prompt=load_prompt("reasoner")
+)
+
 
 def supervisor_node(state: AgentState):
     current_turn = state.get("turn", 0) + 1
@@ -60,44 +65,53 @@ def supervisor_node(state: AgentState):
     messages = [supervisor_prompt] + list(state["messages"][-15:])
 
     response = fast_llm.invoke(messages)
-    content = response.content.strip()
+    content = response.content.strip().lower()
     new_lines.append(f"   Raw: {content}\n")
 
-    # Parse structured output from new prompt format
-    next_match = re.search(r"Next:\s*\[?(\w+)\]?", content, re.IGNORECASE)
-    if next_match:
-        next_agent = next_match.group(1).strip().lower()
-    else:
-        # Fallback to keyword-based if parsing fails
-        content_lower = content.lower()
-        if "planner" in content_lower:
-            next_agent = "planner"
-        elif "coder" in content_lower:
-            next_agent = "coder"
-        elif "tester" in content_lower:
-            next_agent = "tester"
-        elif any(x in content_lower for x in ["pr_creator", "prcreator", "pr creator", "pullrequest"]):
+    # Enhanced loop detection: coder-tester rounds >5 forces PR
+    loop_detected = False
+    if last_agent == "tester" and "coder" in content:
+        coder_tester_rounds += 1
+        if coder_tester_rounds > 5:
+            loop_detected = True
             next_agent = "pr_creator"
-        elif any(x in content_lower for x in ["reasoner", "stuck", "unclear", "help", "confused", "ambiguous"]):
-            next_agent = "reasoner"
-        elif any(x in content_lower for x in ["finish", "done", "complete"]):
-            next_agent = "finish"
+            new_lines.append(
+                "🔄 Loop detected (coder-tester >5 rounds) - forcing PR!\n"
+            )
         else:
             next_agent = "coder"
-
-    # Normalize to uppercase for FINISH
-    if next_agent == "finish":
-        next_agent = "FINISH"
-
-    # Apply strong termination and loop protection
-    if last_agent == "pr_creator":
+    elif last_agent == "pr_creator":
         next_agent = "FINISH"  # Force end after PR creation
-    elif last_agent == "tester" and next_agent == "coder":
-        coder_tester_rounds += 1
-        if coder_tester_rounds >= 3:
-            next_agent = "pr_creator"
+    elif last_agent == "planner" or "**plan complete**" in content:
+        next_agent = "coder"
+    elif "planner" in content:
+        next_agent = "planner"
+    elif "coder" in content:
+        next_agent = "coder"
+    elif "tester" in content:
+        next_agent = "tester"
+    elif any(
+        x in content
+        for x in ["pr_creator", "prcreator", "pr creator", "pullrequest", "pr"]
+    ):
+        next_agent = "pr_creator"
+    elif any(x in content for x in ["issue", "comment"]):
+        next_agent = "reasoner"  # Route issue/comment handling to reasoner for planning
+    elif any(
+        x in content
+        for x in ["reasoner", "stuck", "unclear", "help", "confused", "ambiguous"]
+    ):
+        next_agent = "reasoner"
+    elif any(x in content for x in ["finish", "done", "complete"]):
+        next_agent = "FINISH"
+    else:
+        next_agent = "coder"
 
-    new_lines.append(f"Chose: {next_agent} (coder/tester rounds: {coder_tester_rounds})\n")
+    new_lines.append(
+        f"Chose: {next_agent} (coder/tester rounds: {coder_tester_rounds})\n"
+    )
+    if loop_detected:
+        new_lines.append("Log: Loop detected\n")
     new_lines.append(f"Memory: {get_memory_usage()}\n\n")
 
     full_trace.extend(new_lines)
@@ -111,8 +125,9 @@ def supervisor_node(state: AgentState):
         "original_human_request": state.get("original_human_request"),
         "last_planner_plan": state.get("last_planner_plan"),
         "last_reasoner_advice": state.get("last_reasoner_advice"),
-        "coder_tester_rounds": coder_tester_rounds
+        "coder_tester_rounds": coder_tester_rounds,
     }
+
 
 def create_specialist_node(agent, name: str):
     def node(state: AgentState):
@@ -125,11 +140,23 @@ def create_specialist_node(agent, name: str):
         # Smart rolling window + preserve key outputs
         history = list(state["messages"][-12:])
         if original_request:
-            history.insert(0, HumanMessage(content=f"ORIGINAL HUMAN REQUEST: {original_request}"))
+            history.insert(
+                0, HumanMessage(content=f"ORIGINAL HUMAN REQUEST: {original_request}")
+            )
         if state.get("last_planner_plan"):
-            history.insert(1, HumanMessage(content=f"LATEST PLANNER PLAN:\n{state['last_planner_plan']}"))
+            history.insert(
+                1,
+                HumanMessage(
+                    content=f"LATEST PLANNER PLAN:\n{state['last_planner_plan']}"
+                ),
+            )
         if state.get("last_reasoner_advice"):
-            history.insert(2, HumanMessage(content=f"LATEST REASONER ADVICE:\n{state['last_reasoner_advice']}"))
+            history.insert(
+                2,
+                HumanMessage(
+                    content=f"LATEST REASONER ADVICE:\n{state['last_reasoner_advice']}"
+                ),
+            )
 
         response = agent.invoke({"messages": history})
 
@@ -157,9 +184,11 @@ def create_specialist_node(agent, name: str):
             "original_human_request": original_request,
             "last_planner_plan": state.get("last_planner_plan"),
             "last_reasoner_advice": state.get("last_reasoner_advice"),
-            "coder_tester_rounds": state.get("coder_tester_rounds", 0)
+            "coder_tester_rounds": state.get("coder_tester_rounds", 0),
         }
+
     return node
+
 
 # Build graph
 graph = StateGraph(AgentState)
@@ -182,7 +211,7 @@ graph.add_conditional_edges(
         "pr_creator": "pr_creator",
         "reasoner": "reasoner",
         "FINISH": END,
-    }
+    },
 )
 
 for node in ["planner", "coder", "tester", "reasoner"]:
