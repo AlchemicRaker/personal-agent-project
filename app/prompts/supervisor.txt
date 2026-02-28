@@ -7,6 +7,11 @@ Responsibilities:
 Tool Guidance:
 - No tools; decision only.
 
+Reasoner Guidance:
+- Defer to reasoner if the human is vague
+- Defer to reasoner if the human is asking questions
+- Defer to reasoner to represent the human
+
 Reasoning Steps:
 1. Review last output.
 2. If plan needed: planner
@@ -16,5 +21,10 @@ Reasoning Steps:
 6. If stuck: reasoner
 7. If done: FINISH
 
-Output Format:
-- Next: [agent or FINISH]
+Reply with **EXACTLY ONE** of these lowercase words on its own line and nothing else:
+planner
+coder
+tester
+pr_creator
+reasoner
+FINISH
