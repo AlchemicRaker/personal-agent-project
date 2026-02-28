@@ -9,7 +9,7 @@ import psutil
 
 # Import workspace tools + original create_pr
 from .tools.workspace_tools import list_dir, read_file, write_file, run_command, clone_repo
-from .tools.github_tools import create_pr
+from .tools.github_tools import create_pull_request
 from .agents.base import load_prompt
 from dotenv import load_dotenv
 
@@ -38,7 +38,7 @@ def get_memory_usage() -> str:
     return f"{mem_mb:.1f} MB"
 
 # All tools available to agents
-tools = [list_dir, read_file, write_file, run_command, create_pr, clone_repo]
+tools = [list_dir, read_file, write_file, run_command, create_pull_request, clone_repo]
 
 # Agents
 planner = create_agent(model=fast_llm, tools=tools, system_prompt=load_prompt("planner"))
@@ -53,7 +53,7 @@ def supervisor_node(state: AgentState):
     last_agent = state.get("last_agent", "user")
     coder_tester_rounds = state.get("coder_tester_rounds", 0)
 
-    new_lines = [f"🔄 [Turn {current_turn}] Supervisor (last: {last_agent}) deciding...\n"]
+    new_lines = [f"Turn {current_turn}] Supervisor (last: {last_agent}) deciding...\n"]
 
     supervisor_prompt = load_prompt("supervisor")
     messages = [supervisor_prompt] + list(state["messages"][-15:])
@@ -64,7 +64,7 @@ def supervisor_node(state: AgentState):
 
     # STRONG TERMINATION + loop protection
     if last_agent == "pr_creator":
-        next_agent = "FINISH"   # ← Force end after PR creation
+        next_agent = "FINISH"   # Force end after PR creation
     elif last_agent == "tester" and "coder" in content:
         coder_tester_rounds += 1
         if coder_tester_rounds >= 3:
@@ -88,8 +88,8 @@ def supervisor_node(state: AgentState):
     else:
         next_agent = "coder"
 
-    new_lines.append(f"✅ [Turn {current_turn}] Chose: {next_agent} (coder/tester rounds: {coder_tester_rounds})\n")
-    new_lines.append(f"💾 Memory: {get_memory_usage()}\n\n")
+    new_lines.append(f"Chose: {next_agent} (coder/tester rounds: {coder_tester_rounds})\n")
+    new_lines.append(f"Memory: {get_memory_usage()}\n\n")
 
     full_trace.extend(new_lines)
 
@@ -111,7 +111,7 @@ def create_specialist_node(agent, name: str):
         full_trace = state.get("trace", [])
         original_request = state.get("original_human_request", "")
 
-        new_lines = [f"🛠️ [Turn {current_turn}] {name} is working...\n"]
+        new_lines = [f"Turn {current_turn}] {name} is working...\n"]
 
         # Smart rolling window + preserve key outputs
         history = list(state["messages"][-12:])
@@ -134,9 +134,9 @@ def create_specialist_node(agent, name: str):
 
             preview = last_output[:700] + ("..." if len(last_output) > 700 else "")
             if name != "PR_Creator":
-                new_lines.append(f"📤 {name} Output Preview:\n{preview}\n\n")
+                new_lines.append(f"{name} Output Preview:\n{preview}\n\n")
 
-        new_lines.append(f"💾 Memory after {name}: {get_memory_usage()}\n\n")
+        new_lines.append(f"Memory after {name}: {get_memory_usage()}\n\n")
         full_trace.extend(new_lines)
 
         return {

@@ -17,7 +17,7 @@ def clone_repo(repo_full_name: str) -> str:
     clone_url = f"https://x-access-token:{token}@github.com/{repo_full_name}.git"
     try:
         subprocess.run(["git", "clone", clone_url, str(WORKSPACE)], check=True, capture_output=True, text=True)
-        return f"✅ Successfully cloned {repo_full_name} into workspace staging area"
+        return f"Successfully cloned {repo_full_name} into workspace staging area"
     except subprocess.CalledProcessError as e:
         return f"Error cloning {repo_full_name}: {e.stderr}"
 
@@ -40,12 +40,14 @@ def write_file(path: str, content: str) -> str:
     try:
         (WORKSPACE / path).parent.mkdir(parents=True, exist_ok=True)
         (WORKSPACE / path).write_text(content, encoding="utf-8")
-        return f"✅ Wrote {path} ({len(content)} chars)"
+        return f"Wrote {path} ({len(content)} chars)"
     except Exception as e:
         return f"Error writing {path}: {str(e)}"
 
 def run_command(cmd: str, timeout: int = 30) -> str:
     """Run command inside the workspace staging area."""
+    if cmd.strip().lower().startswith("git "):
+        return "Error: Git management commands are not allowed via run_command. Use dedicated GitHub tools."
     try:
         result = subprocess.run(
             cmd,
