@@ -6,6 +6,7 @@ from typing import TypedDict, Annotated, Sequence, List
 from langgraph.graph.message import add_messages
 from langchain_core.messages import HumanMessage
 import psutil
+import re
 
 # Import workspace tools + original create_pr
 from .tools.workspace_tools import list_dir, read_file, write_file, run_command, clone_repo
@@ -59,34 +60,42 @@ def supervisor_node(state: AgentState):
     messages = [supervisor_prompt] + list(state["messages"][-15:])
 
     response = fast_llm.invoke(messages)
-    content = response.content.strip().lower()
+    content = response.content.strip()
     new_lines.append(f"   Raw: {content}\n")
 
-    # STRONG TERMINATION + loop protection
+    # Parse structured output from new prompt format
+    next_match = re.search(r"Next:\s*\[?(\w+)\]?", content, re.IGNORECASE)
+    if next_match:
+        next_agent = next_match.group(1).strip().lower()
+    else:
+        # Fallback to keyword-based if parsing fails
+        content_lower = content.lower()
+        if "planner" in content_lower:
+            next_agent = "planner"
+        elif "coder" in content_lower:
+            next_agent = "coder"
+        elif "tester" in content_lower:
+            next_agent = "tester"
+        elif any(x in content_lower for x in ["pr_creator", "prcreator", "pr creator", "pullrequest"]):
+            next_agent = "pr_creator"
+        elif any(x in content_lower for x in ["reasoner", "stuck", "unclear", "help", "confused", "ambiguous"]):
+            next_agent = "reasoner"
+        elif any(x in content_lower for x in ["finish", "done", "complete"]):
+            next_agent = "finish"
+        else:
+            next_agent = "coder"
+
+    # Normalize to uppercase for FINISH
+    if next_agent == "finish":
+        next_agent = "FINISH"
+
+    # Apply strong termination and loop protection
     if last_agent == "pr_creator":
-        next_agent = "FINISH"   # Force end after PR creation
-    elif last_agent == "tester" and "coder" in content:
+        next_agent = "FINISH"  # Force end after PR creation
+    elif last_agent == "tester" and next_agent == "coder":
         coder_tester_rounds += 1
         if coder_tester_rounds >= 3:
             next_agent = "pr_creator"
-        else:
-            next_agent = "coder"
-    elif last_agent == "planner" or "**plan complete**" in content:
-        next_agent = "coder"
-    elif "planner" in content:
-        next_agent = "planner"
-    elif "coder" in content:
-        next_agent = "coder"
-    elif "tester" in content:
-        next_agent = "tester"
-    elif any(x in content for x in ["pr_creator", "prcreator", "pr creator", "pullrequest"]):
-        next_agent = "pr_creator"
-    elif any(x in content for x in ["reasoner", "stuck", "unclear", "help", "confused", "ambiguous"]):
-        next_agent = "reasoner"
-    elif any(x in content for x in ["finish", "done", "complete"]):
-        next_agent = "FINISH"
-    else:
-        next_agent = "coder"
 
     new_lines.append(f"Chose: {next_agent} (coder/tester rounds: {coder_tester_rounds})\n")
     new_lines.append(f"Memory: {get_memory_usage()}\n\n")
