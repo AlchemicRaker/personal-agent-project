@@ -1,3 +1,4 @@
+version: '3.8'
 services:
   agent:
     build:
@@ -8,6 +9,7 @@ services:
     volumes:
       - .:/app
       - ./workspace:/workspace   # Persistent workspace for all code/files
+      - ./memory:/memory         # Persistent memory for agent context
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PYTHONPATH=/app
@@ -28,4 +30,5 @@ services:
     image: software-engineer-sandbox
     volumes:
       - ./workspace:/workspace   # Share the same workspace
+      - ./memory:/memory         # Share memory (read-only access ok)
     mem_limit: 2g
