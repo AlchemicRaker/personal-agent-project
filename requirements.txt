@@ -8,3 +8,7 @@ python-dotenv
 docker
 pydantic
 psutil
+tiktoken
+black
+ruff
+mypy
